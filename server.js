@@ -20,6 +20,8 @@ export function createNightfall(io) {
     const session=sessions.get(socket.data.token), own=room.players.get(session?.playerId);
     if(!own)return;
     const s=room.snapshot();
+    const admin=own.name==='admin',debugFullMap=admin&&session.debugFullMap===true;
+    s.debug={enabled:admin,fullMap:debugFullMap,...(admin?{serverTickRate:C.tickRate}: {})};
     let view=own;
     if(['out','escaped'].includes(own.status)) {
       const targets=s.players.filter(p=>['alive','down','caged','carried'].includes(p.status));
@@ -29,11 +31,11 @@ export function createNightfall(io) {
     const radius=C.survivorVision*(view.role==='killer'?C.killerVisionMultiplier:1);
     s.players=s.players.map(p=>{
       const bush=room.map.bushes.some(b=>p.x>=b.x&&p.x<=b.x+b.w&&p.y>=b.y&&p.y<=b.y+b.h);
-      const visible=p.id===view.id||(!p.hidden&&distance(view,p)<=radius&&!(view.role==='killer'&&p.role==='survivor'&&bush&&distance(view,p)>65));
+      const visible=debugFullMap||p.id===view.id||(!p.hidden&&distance(view,p)<=radius&&!(view.role==='killer'&&p.role==='survivor'&&bush&&distance(view,p)>65));
       return {...p,x:visible?p.x:null,y:visible?p.y:null};
     });
-    // Occupants' positions and identities are never sent through cabinet objects.
-    s.map={...s.map,cabinets:s.map.cabinets.map(({occupant,...c})=>c),generators:s.map.generators.map(({workers,...g})=>g),cages:s.map.cages.map(({rescuers,...c})=>c)};
+    // Full object inspection is available only to the explicitly requested admin nickname.
+    if(!debugFullMap)s.map={...s.map,cabinets:s.map.cabinets.map(({occupant,...c})=>c),generators:s.map.generators.map(({workers,...g})=>g),cages:s.map.cages.map(({rescuers,...c})=>c)};
     if(!full) { const {walls,bushes,width,height,seed,...dynamic}=s.map;s.map=dynamic;delete s.config; }
     socket.emit('state',s);
   }
@@ -44,7 +46,7 @@ export function createNightfall(io) {
       if(room.hostId===p.id)room.hostId=[...room.players.values()].find(q=>q.connected)?.id||null;
       if(![...room.players.values()].some(q=>q.connected)){rooms.delete(room.code);}else broadcast(room,true);
     }
-    session.roomCode=null;session.playerId=null;sendDirectory();
+    session.roomCode=null;session.playerId=null;session.debugFullMap=false;sendDirectory();
   }
   ns.use((socket,next)=>{try {const token=socket.handshake.auth.token;if(typeof token!=='string'||! /^[a-f0-9-]{36}$/i.test(token))throw new Error('접속 토큰이 올바르지 않습니다.');socket.data.token=token;next();}catch(e){next(e);}});
   ns.on('connection',socket=>{
@@ -65,6 +67,8 @@ export function createNightfall(io) {
       const room=new Room(code,name,max),p=room.addPlayer(nickname);rooms.set(code,room);session.roomCode=code;session.playerId=p.id;socket.emit('identity',p.id);broadcast(room,true);sendDirectory();
     });
     action('join',data=>{if(session.roomCode)throw new Error('현재 방에서 먼저 나가주세요.');const code=clean(data?.code,6).toUpperCase(),room=rooms.get(code);if(!room)throw new Error('방 코드를 확인해주세요.');const p=room.addPlayer(clean(data?.nickname,12));session.roomCode=code;session.playerId=p.id;socket.emit('identity',p.id);broadcast(room,true);sendDirectory();});
+    action('debug-view',data=>{const r=active(),p=r.players.get(session.playerId);if(p?.name!=='admin')throw new Error('admin 플레이어만 디버깅 모드를 사용할 수 있습니다.');if(typeof data?.fullMap!=='boolean')throw new Error('맵 보기 값이 올바르지 않습니다.');session.debugFullMap=data.fullMap;sendRoom(socket,r,true);});
+    socket.on('debug-ping',ack=>{if(session.socketId===socket.id&&rooms.get(session.roomCode)?.players.get(session.playerId)?.name==='admin'&&typeof ack==='function')ack({ok:true});});
     action('role',data=>{const r=active();r.setRole(session.playerId,data?.role);broadcast(r,true);});
     action('start',()=>{const r=active();r.start(session.playerId);broadcast(r,true);sendDirectory();});
     action('reset',()=>{const r=active();r.reset(session.playerId);broadcast(r,true);sendDirectory();});
@@ -75,7 +79,7 @@ export function createNightfall(io) {
   let ticks=0,last=performance.now();
   const timer=setInterval(()=>{
     const now=performance.now(),dt=Math.min(.1,(now-last)/1000);last=now;ticks++;
-    for(const room of rooms.values()){const before=room.phase;room.tick(dt);if(ticks%3===0&&room.phase!=='lobby')broadcast(room);if(before!==room.phase)sendDirectory();}
+    for(const room of rooms.values()){const before=room.phase;room.tick(dt);if(ticks%3===0&&room.phase!=='lobby')broadcast(room);else if(ticks%3===0)for(const socket of ns.sockets.values()){const s=sessions.get(socket.data.token);if(s?.roomCode===room.code&&s.debugFullMap)sendRoom(socket,room);}if(before!==room.phase)sendDirectory();}
     if(ticks%C.tickRate===0)for(const [token,s] of sessions){if(s.disconnectedAt&&Date.now()-s.disconnectedAt>C.disconnectGraceSeconds*1000){leave(s);sessions.delete(token);}}
   },1000/C.tickRate);timer.unref();
   return {rooms,namespace:ns,close(){clearInterval(timer);ns.disconnectSockets(true);}};
@@ -87,7 +91,7 @@ export async function handleNightfallRequest(req,res,base='/dbd') {
   if(url.pathname===base){res.writeHead(302,{Location:`${base}/`});res.end();return true;}
   if(!url.pathname.startsWith(`${base}/`))return false;
   const file=url.pathname.slice(base.length+1)||'index.html';
-  if(!['index.html','app.js','style.css'].includes(file)){res.writeHead(404);res.end('Not found');return true;}
+  if(!['index.html','app.js','style.css','debug.js','debug.css'].includes(file)){res.writeHead(404);res.end('Not found');return true;}
   try {const body=await readFile(path.join(root,'public',file));res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'});res.end(body);}catch{res.writeHead(500);res.end('Game assets unavailable');}return true;
 }
 export function createStandaloneServer(){const http=createServer(async(req,res)=>{if(await handleNightfallRequest(req,res))return;if(req.url==='/'){res.writeHead(302,{Location:'/dbd/'});res.end();}else{res.writeHead(404);res.end();}});const io=new Server(http,{maxHttpBufferSize:16384});const game=createNightfall(io);return {http,io,game,close:()=>{game.close();return new Promise(resolve=>io.close(resolve));}};}

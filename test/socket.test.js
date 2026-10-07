@@ -30,3 +30,25 @@ test('server masks positions outside view, cabinets and bushes; spectator gets f
   survivor.hidden=room.map.cabinets[0].id;await sleep(150);assert.equal(k.latest.players.find(p=>p.id===a.identity).x,null);assert.equal(k.latest.map.cabinets[0].occupant,undefined);
   survivor.hidden=null;survivor.status='out';survivor.spectateId=killer.id;await sleep(150);assert.equal(a.latest.viewId,killer.id);assert.notEqual(a.latest.players.find(p=>p.id===killer.id).x,null);
 });
+test('admin can inspect the lobby and full map; regular users retain fog and cannot enable debug',async t=>{
+  const {server,url,client}=await fixture(t),adminToken=randomUUID(),admin=await client(adminToken),a=await client(),b=await client();
+  assert.equal((await fetch(`${url}/dbd/debug.js`)).status,200);assert.equal((await fetch(`${url}/dbd/debug.css`)).status,200);
+  await emit(admin,'create',{name:'debug',nickname:'admin',maxPlayers:3});await sleep(30);const code=admin.latest.code;
+  await emit(a,'join',{code,nickname:'normal'});await emit(b,'join',{code,nickname:'second'});await sleep(120);
+  assert.equal(admin.latest.debug.enabled,true);assert.equal(a.latest.debug.enabled,false);
+  assert.equal((await emit(a,'debug-view',{fullMap:true})).ok,false);
+  assert.equal((await emit(admin,'debug-view',{fullMap:'true'})).ok,false);await sleep(120);
+  assert.equal((await emit(admin,'debug-view',{fullMap:true})).ok,true);await sleep(30);
+  assert.equal(admin.latest.debug.fullMap,true);assert.equal(admin.latest.phase,'lobby');assert.equal(admin.latest.map.walls.length,60);
+  await sleep(120);await emit(admin,'start');await sleep(120);
+  const room=server.game.rooms.get(code),p=room.players.get(a.identity),other=room.players.get(b.identity),h=room.map.cabinets[0];
+  p.x=h.x;p.y=h.y;p.hidden=h.id;h.occupant=p.id;other.x=3000;other.y=2200;
+  await sleep(150);
+  assert.equal(admin.latest.players.find(q=>q.id===p.id).x,h.x);assert.equal(admin.latest.map.cabinets[0].occupant,p.id);
+  assert.equal(admin.latest.players.find(q=>q.id===other.id).x,3000);assert.equal(a.latest.players.find(q=>q.id===other.id).x,null);assert.equal(a.latest.map.cabinets[0].occupant,undefined);
+  assert.equal((await emit(admin,'debug-view',{fullMap:false})).ok,true);await sleep(120);
+  assert.equal(admin.latest.players.find(q=>q.id===p.id).x,null);assert.equal(admin.latest.map.cabinets[0].occupant,undefined);
+  await emit(admin,'debug-view',{fullMap:true});await sleep(120);admin.disconnect();await sleep(40);const again=await client(adminToken);await sleep(120);assert.equal(again.latest.debug.fullMap,true);
+  const ping=await new Promise((resolve,reject)=>again.timeout(2000).emit('debug-ping',(err,r)=>err?reject(err):resolve(r)));assert.equal(ping.ok,true);
+  await emit(again,'leave');await sleep(120);await emit(again,'create',{name:'ordinary',nickname:'regular',maxPlayers:3});await sleep(30);assert.equal(again.latest.debug.enabled,false);assert.equal(again.latest.debug.fullMap,false);
+});

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node server.js", "test": "node --test", "check": "node --check server.js && node --check game.js && node --check public/app.js" },
+  "scripts": { "start": "node server.js", "test": "node --test", "check": "node --check server.js && node --check game.js && node --check public/app.js && node --check public/debug.js" },
   "engines": { "node": ">=20" },
   "dependencies": { "socket.io": "^4.8.1" },
   "devDependencies": { "socket.io-client": "^4.8.1" }

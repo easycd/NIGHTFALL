@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ko">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101713"><title>NIGHTFALL — 마지막 불빛</title><link rel="stylesheet" href="./style.css"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101713"><title>NIGHTFALL — 마지막 불빛</title><link rel="stylesheet" href="./style.css"><link rel="stylesheet" href="./debug.css"></head>
 <body>
   <canvas id="game" aria-label="게임 맵"></canvas>
   <div id="lobby" class="screen">
@@ -21,6 +21,18 @@
   <div id="hud" hidden><div class="hud-top"><div class="hud-brand">NIGHTFALL <span id="role-label"></span></div><div class="objective"><span id="objective-text">발전기를 가동하세요</span><div id="generator-lights"></div></div><div><span id="timer">00:00</span><button id="game-help" class="text-button">가이드</button><button id="game-leave" class="text-button">나가기</button></div></div><div id="team" class="team"></div><div id="event-log" class="event-log"></div><div class="map-label">BLACKPINE RESERVE <span>32 × 24</span></div><div id="status-banner" class="status-banner"></div><div class="interaction"><div id="action-text"></div><div class="progress-track" id="action-track" hidden><i id="action-progress"></i></div><div class="keys"><kbd>W A S D</kbd> 이동 <kbd>SPACE</kbd> 상호작용</div></div><canvas id="minimap" width="180" height="135"></canvas><div id="connection-warning" hidden>서버 연결이 끊겼습니다. 재접속 중…</div></div>
   <div id="result" class="modal" hidden><section class="dialog"><p class="eyebrow">THE NIGHT HAS ENDED</p><h2 id="result-title"></h2><p id="result-description"></p><div id="result-players"></div><button id="reset" class="primary">대기실로 돌아가기</button><button id="result-leave" class="secondary">방 나가기</button></section></div>
   <div id="guide" class="modal" hidden><section class="dialog guide"><button id="close-guide" class="close">×</button><p class="eyebrow">SURVIVAL MANUAL</p><h2>어둠 속 생존 가이드</h2><div class="guide-grid"><article><h3>도망자</h3><p>발전기 근처에서 스페이스를 60초 유지하세요. 진행도는 중단해도 저장됩니다. 5개가 모두 가동되면 반대편 두 탈출구가 열립니다. 열린 탈출구에 접근하면 탈출합니다.</p><p>파레트 근처에서 스페이스를 눌러 내려놓으세요. 가까운 살인마가 2초 기절하며 파레트는 한 번만 쓸 수 있습니다. 캐비넷에서 숨거나 나오기도 스페이스입니다. 풀숲에서는 가까이 오기 전까지 살인마에게 보이지 않습니다.</p></article><article><h3>살인마</h3><p>도망자보다 1.5배 빠르고 원형 시야의 반지름이 2.5배 넓습니다. 도망자와 충돌하면 기절시킵니다. 스페이스로 들어 올리고, 빈 감옥에 접근해 다시 스페이스를 눌러 가두세요.</p><p>내려진 파레트는 스페이스를 1.5초 유지해 부술 수 있습니다. 캐비넷 근처에서 스페이스를 누르면 안에 숨은 도망자를 찾을 수 있습니다. 운반 중에는 이동속도가 20% 줄어듭니다.</p></article></div><article><h3>구출과 관전</h3><p>감옥 근처에서 스페이스를 연속 5초 유지해 동료를 구출하세요. 두 번째 감금 시 탈락하고 관전 모드로 전환됩니다. 탈락·탈출 후 스페이스로 관전 대상을 바꿉니다. 연결이 끊기면 30초 내 재접속할 수 있습니다.</p></article><p class="muted small">수리 인원이 늘어도 발전기 시간은 60초입니다. 시야 2.5배는 원의 반지름 기준입니다. 게임은 도망자가 모두 탈출·탈락하면 종료되며, 1명 이상 탈출하면 도망자 측이 승리합니다.</p><button id="guide-ok" class="primary">확인했어요</button></section></div>
+  <aside id="debug-panel" hidden aria-label="디버깅 패널">
+    <div class="debug-heading"><b>ADMIN · MAP INSPECTOR</b><button id="debug-collapse" class="text-button">접기 I</button></div>
+    <p class="debug-notice">admin 이름은 누구나 사용할 수 있습니다. 이 모드는 맵과 상태 확인용입니다.</p>
+    <div class="debug-tools"><button id="debug-toggle">전체 맵 T</button><button id="debug-fit">맵에 맞추기</button><button id="debug-hitboxes">충돌 영역 B</button><button id="debug-labels">ID 표시 O</button><button id="debug-export">상태 JSON 보기 / 저장</button></div>
+    <div id="debug-stats"></div><div id="debug-counts"></div>
+    <div class="debug-selected"><b id="debug-selected-title">오브젝트를 클릭해 상태 확인</b><dl id="debug-selected-fields"></dl></div>
+    <div class="debug-table"><b>발전기 진행도</b><div id="debug-generators"></div></div>
+    <p class="debug-help">T 전체 맵 전환 · B 충돌 영역 · O 오브젝트 ID · I 패널 접기<br>전체 맵에서 휠 확대/축소 · 드래그 이동 · 클릭 상세 확인<br>대기실에서도 맵 확인 가능 · 게임 진행에는 영향 없음</p>
+  </aside>
+  <button id="debug-open" hidden>ADMIN · 디버깅 I</button>
+  <div id="debug-map-banner" hidden>ADMIN · 전체 맵 <span>휠 확대 · 드래그 이동 · 클릭 상태 확인</span></div>
+  <div id="debug-snapshot" class="modal" hidden><section class="dialog"><p class="eyebrow">DEBUG SNAPSHOT</p><h2>현재 맵 상태</h2><p>현재 시점의 플레이어와 오브젝트 상태입니다.</p><textarea id="debug-json" readonly aria-label="맵 상태 JSON" spellcheck="false"></textarea><button id="debug-json-save" class="primary">JSON 파일 저장</button><button id="debug-json-copy" class="secondary">JSON 복사</button><button id="debug-json-close" class="secondary">닫기 · ESC</button></section></div>
   <div id="toast" role="status" hidden></div>
   <script src="/socket.io/socket.io.js"></script><script type="module" src="./app.js"></script>
 </body></html>
