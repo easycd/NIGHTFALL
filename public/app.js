@@ -1,10 +1,12 @@
 import { createDebugger } from './debug.js';
+import { createChat } from './chat.js';
 const $=id=>document.getElementById(id), canvas=$('game'),ctx=canvas.getContext('2d'),mini=$('minimap'),mc=mini.getContext('2d');
 let token=sessionStorage.getItem('nightfall-token');if(!token){token=crypto.randomUUID();sessionStorage.setItem('nightfall-token',token);}
 const socket=io('/nightfall',{auth:{token},reconnection:true});
 let state=null,myId=null,keys=new Set(),lastEvents='',lastRoster='',lastResult='',toastTimeout,camera={x:1600,y:1200},W=innerWidth,H=innerHeight,dpr=Math.min(devicePixelRatio,2),previousPositions=new Map(),arrival=performance.now(),guideOpen=false;
 const statusText={alive:'생존',down:'기절',carried:'운반 중',caged:'감금',out:'탈락',escaped:'탈출'};
 const debug=createDebugger({canvas,getState:()=>state,getMyId:()=>myId,socket,notify:toast,clearInput});
+const chat=createChat({socket,clearInput,getState:()=>state});
 $('nickname').value=localStorage.getItem('nightfall-name')||'';
 const invited=new URLSearchParams(location.search).get('room');if(invited){$('join-code').value=invited.toUpperCase();tab(false);}
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>$('toast').hidden=true,3800);}
@@ -29,11 +31,11 @@ socket.on('directory',rooms=>{
 });
 socket.on('state',next=>{
   previousPositions=new Map((state?.players||[]).map(p=>[p.id,{x:p.x,y:p.y}]));arrival=performance.now();
-  if(!next){state=null;myId=null;lastRoster='';lastResult='';clearInput();$('lobby').hidden=false;$('entry').hidden=false;$('waiting').hidden=true;$('hud').hidden=true;$('result').hidden=true;debug.update();return;}
+  if(!next){state=null;myId=null;lastRoster='';lastResult='';clearInput();$('lobby').hidden=false;$('entry').hidden=false;$('waiting').hidden=true;$('hud').hidden=true;$('result').hidden=true;debug.update();chat.update();return;}
   const oldPhase=state?.phase;next.map={...(state?.map||{}),...next.map};next.config??=state?.config;state=next;
   debug.update();const playing=state.phase!=='lobby';$('lobby').hidden=playing||debug.fullMap;$('hud').hidden=!playing;$('entry').hidden=true;$('waiting').hidden=false;
   if(oldPhase!==state.phase){clearInput();lastRoster='';lastResult='';if(state.phase==='playing'){const p=state.players.find(p=>p.id===myId);if(p){camera.x=p.x;camera.y=p.y;}}}
-  updateUi();
+  updateUi();chat.update();
 });
 function updateUi(){
   const own=state.players.find(p=>p.id===myId);if(!own)return;
@@ -62,7 +64,7 @@ function updateUi(){
 function contextHint(p){if(p.status!=='alive')return '';if(p.hidden)return 'SPACE · 캐비넷에서 나오기';const near=(list,r=80)=>list.some(o=>Math.hypot(p.x-o.x-(o.w||0)/2,p.y-o.y-(o.h||0)/2)<r);if(p.role==='killer'){if(p.carrying)return near(state.map.cages.filter(c=>!c.occupant))?'SPACE · 감옥에 가두기':'빈 감옥까지 운반하세요';if(near(state.players.filter(q=>q.status==='down')))return 'SPACE · 도망자 들어 올리기';if(near(state.map.pallets.filter(q=>q.state==='dropped')))return 'SPACE 길게 · 파레트 부수기';if(near(state.map.cabinets))return 'SPACE · 캐비넷 확인';return '도망자를 찾아 감옥에 가두세요';}if(near(state.map.cages.filter(c=>c.occupant)))return 'SPACE 5초 · 동료 구출';if(near(state.map.pallets.filter(q=>q.state==='ready'),75))return 'SPACE · 파레트 내리기';if(near(state.map.generators.filter(g=>g.progress<state.config.generatorSeconds)))return 'SPACE 길게 · 발전기 수리';if(near(state.map.cabinets,65))return 'SPACE · 캐비넷 숨기';return '발전기를 찾아 불빛을 되살리세요';}
 function clearInput(){keys.clear();if(socket.connected&&state)socket.emit('input',{x:0,y:0,space:false});}
 function input(){return {x:Number(keys.has('KeyD'))-Number(keys.has('KeyA')),y:Number(keys.has('KeyS'))-Number(keys.has('KeyW')),space:keys.has('Space')};}
-addEventListener('keydown',e=>{if(debug.modalOpen){if(e.code==='Escape'){e.preventDefault();debug.closeSnapshot();}return;}if(e.code==='Escape'){guide(!guideOpen);return;}if(guideOpen||/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))return;if(debug.key(e))return;if(!state||state.phase!=='playing')return;if(['KeyW','KeyA','KeyS','KeyD','Space'].includes(e.code)){e.preventDefault();keys.add(e.code);socket.emit('input',input());}});
+addEventListener('keydown',e=>{if(debug.modalOpen){if(e.code==='Escape'){e.preventDefault();debug.closeSnapshot();}return;}if(e.code==='Escape'){guide(!guideOpen);return;}if(guideOpen||/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))return;if(e.code==='Enter'&&chat.focus()){e.preventDefault();return;}if(debug.key(e))return;if(!state||state.phase!=='playing')return;if(['KeyW','KeyA','KeyS','KeyD','Space'].includes(e.code)){e.preventDefault();keys.add(e.code);socket.emit('input',input());}});
 addEventListener('keyup',e=>{keys.delete(e.code);if(socket.connected&&state)socket.emit('input',input());});addEventListener('blur',clearInput);document.addEventListener('visibilitychange',()=>{if(document.hidden)clearInput();});setInterval(()=>{if(socket.connected&&state?.phase==='playing'&&!guideOpen)socket.emit('input',input());},50);
 function resize(){W=innerWidth;H=innerHeight;dpr=Math.min(devicePixelRatio,2);canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}addEventListener('resize',resize);resize();
 function rounded(x,y,w,h,r,fill,stroke){ctx.beginPath();ctx.roundRect(x,y,w,h,r);if(fill){ctx.fillStyle=fill;ctx.fill();}if(stroke){ctx.strokeStyle=stroke;ctx.stroke();}}

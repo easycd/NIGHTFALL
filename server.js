@@ -13,6 +13,8 @@ const clean=(value,max)=>{if(typeof value!=='string')throw new Error('텍스트�
 // Attach to an existing Socket.IO server without opening another Render port.
 export function createNightfall(io) {
   const ns=io.of('/nightfall'),rooms=new Map(),sessions=new Map();
+  const chats=new WeakMap();
+  const channelFor=(room,p)=>p?.role==='survivor'&&['playing','finished'].includes(room.phase)?(p.status==='out'?'dead':'survivors'):null;
   const directory=()=>[...rooms.values()].map(r=>({code:r.code,name:r.name,count:r.players.size,max:r.maxPlayers,phase:r.phase}));
   const sendDirectory=()=>ns.emit('directory',directory());
   function sendRoom(socket,room,full=false) {
@@ -20,6 +22,8 @@ export function createNightfall(io) {
     const session=sessions.get(socket.data.token), own=room.players.get(session?.playerId);
     if(!own)return;
     const s=room.snapshot();
+    const channel=channelFor(room,own);
+    s.chat={channel,messages:channel?(chats.get(room)?.[channel]||[]):[]};
     const admin=own.name==='admin',debugFullMap=admin&&session.debugFullMap===true;
     s.debug={enabled:admin,fullMap:debugFullMap,...(admin?{serverTickRate:C.tickRate}: {})};
     let view=own;
@@ -70,7 +74,8 @@ export function createNightfall(io) {
     action('debug-view',data=>{const r=active(),p=r.players.get(session.playerId);if(p?.name!=='admin')throw new Error('admin 플레이어만 디버깅 모드를 사용할 수 있습니다.');if(typeof data?.fullMap!=='boolean')throw new Error('맵 보기 값이 올바르지 않습니다.');session.debugFullMap=data.fullMap;sendRoom(socket,r,true);});
     socket.on('debug-ping',ack=>{if(session.socketId===socket.id&&rooms.get(session.roomCode)?.players.get(session.playerId)?.name==='admin'&&typeof ack==='function')ack({ok:true});});
     action('role',data=>{const r=active();r.setRole(session.playerId,data?.role);broadcast(r,true);});
-    action('start',()=>{const r=active();r.start(session.playerId);broadcast(r,true);sendDirectory();});
+    action('start',()=>{const r=active();r.start(session.playerId);chats.set(r,{survivors:[],dead:[]});broadcast(r,true);sendDirectory();});
+    action('chat',data=>{const r=active(),p=r.players.get(session.playerId),channel=channelFor(r,p);if(!channel)throw new Error('생존자와 사망자만 게임 내 채팅을 사용할 수 있습니다.');if(Date.now()-(session.lastChat||0)<700)throw new Error('메시지를 너무 빠르게 보내고 있습니다.');const message={id:randomBytes(12).toString('hex'),name:p.name,text:clean(data?.text,200),time:Date.now()};session.lastChat=Date.now();if(!chats.has(r))chats.set(r,{survivors:[],dead:[]});const history=chats.get(r)[channel];history.push(message);if(history.length>50)history.shift();broadcast(r);});
     action('reset',()=>{const r=active();r.reset(session.playerId);broadcast(r,true);sendDirectory();});
     action('leave',()=>{leave(session);socket.emit('state',null);});
     action('input',data=>{const r=active(),p=r.players.get(session.playerId);if(!p)return;p.input={x:Number.isFinite(data?.x)?Math.max(-1,Math.min(1,data.x)):0,y:Number.isFinite(data?.y)?Math.max(-1,Math.min(1,data.y)):0,space:data?.space===true};});
@@ -91,7 +96,7 @@ export async function handleNightfallRequest(req,res,base='/dbd') {
   if(url.pathname===base){res.writeHead(302,{Location:`${base}/`});res.end();return true;}
   if(!url.pathname.startsWith(`${base}/`))return false;
   const file=url.pathname.slice(base.length+1)||'index.html';
-  if(!['index.html','app.js','style.css','debug.js','debug.css'].includes(file)){res.writeHead(404);res.end('Not found');return true;}
+  if(!['index.html','app.js','style.css','debug.js','debug.css','chat.js','chat.css'].includes(file)){res.writeHead(404);res.end('Not found');return true;}
   try {const body=await readFile(path.join(root,'public',file));res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'});res.end(body);}catch{res.writeHead(500);res.end('Game assets unavailable');}return true;
 }
 export function createStandaloneServer(){const http=createServer(async(req,res)=>{if(await handleNightfallRequest(req,res))return;if(req.url==='/'){res.writeHead(302,{Location:'/dbd/'});res.end();}else{res.writeHead(404);res.end();}});const io=new Server(http,{maxHttpBufferSize:16384});const game=createNightfall(io);return {http,io,game,close:()=>{game.close();return new Promise(resolve=>io.close(resolve));}};}

@@ -52,3 +52,23 @@ test('admin can inspect the lobby and full map; regular users retain fog and can
   const ping=await new Promise((resolve,reject)=>again.timeout(2000).emit('debug-ping',(err,r)=>err?reject(err):resolve(r)));assert.equal(ping.ok,true);
   await emit(again,'leave');await sleep(120);await emit(again,'create',{name:'ordinary',nickname:'regular',maxPlayers:3});await sleep(30);assert.equal(again.latest.debug.enabled,false);assert.equal(again.latest.debug.fullMap,false);
 });
+test('chat separates survivors and dead players, denies killers and forged channels, resets per match',async t=>{
+  const {server,client}=await fixture(t),k=await client(),a=await client(),b=await client(),d=await client(),e=await client(),outside=await client();
+  await emit(k,'create',{name:'chat',nickname:'admin',maxPlayers:6});await sleep(30);const code=k.latest.code;
+  for(const [s,nickname]of [[a,'A'],[b,'B'],[d,'D'],[e,'E']])await emit(s,'join',{code,nickname});
+  await emit(outside,'create',{name:'other',nickname:'other',maxPlayers:3});await sleep(120);
+  assert.equal((await emit(a,'chat',{text:'lobby'})).ok,false);await emit(k,'start');await sleep(120);
+  assert.equal((await emit(k,'chat',{text:'killer'})).ok,false);assert.equal(k.latest.chat.channel,null);
+  assert.equal((await emit(a,'chat',{text:'생존 메시지',channel:'dead',name:'fake'})).ok,true);await sleep(120);
+  assert.equal(b.latest.chat.messages[0].name,'A');assert.equal(b.latest.chat.messages[0].text,'생존 메시지');assert.deepEqual(k.latest.chat.messages,[]);assert.deepEqual(outside.latest.chat.messages,[]);
+  assert.match((await emit(a,'chat',{text:'too fast'})).error,/빠르게/);
+  const room=server.game.rooms.get(code);room.players.get(d.identity).status='out';room.players.get(e.identity).status='out';await sleep(150);
+  assert.equal(d.latest.chat.channel,'dead');assert.deepEqual(d.latest.chat.messages,[]);
+  assert.equal((await emit(d,'chat',{text:'사망 메시지',channel:'survivors'})).ok,true);await sleep(120);
+  assert.equal(e.latest.chat.messages[0].text,'사망 메시지');assert.equal(a.latest.chat.messages.length,1);assert.deepEqual(k.latest.chat.messages,[]);
+  await emit(k,'debug-view',{fullMap:true});await sleep(120);assert.deepEqual(k.latest.chat.messages,[]);
+  room.players.get(b.identity).status='escaped';await sleep(150);assert.equal(b.latest.chat.channel,'survivors');assert.equal(b.latest.chat.messages[0].text,'생존 메시지');
+  assert.equal((await emit(b,'chat',{text:'x'.repeat(201)})).ok,false);await sleep(120);assert.equal((await emit(b,'chat',{text:'<img src=x onerror=alert(1)>'})).ok,true);await sleep(120);
+  room.players.get(a.identity).status='out';await sleep(150);assert.equal(a.latest.chat.channel,'dead');assert.equal(a.latest.chat.messages[0].text,'사망 메시지');assert.equal(a.latest.chat.messages.length,1);
+  await emit(k,'reset');await sleep(120);assert.equal(a.latest.chat.channel,null);await emit(k,'start');await sleep(120);assert.deepEqual(a.latest.chat.messages,[]);assert.equal(a.latest.chat.channel,'survivors');
+});

@@ -33,6 +33,8 @@
   <button id="debug-open" hidden>ADMIN · 디버깅 I</button>
   <div id="debug-map-banner" hidden>ADMIN · 전체 맵 <span>휠 확대 · 드래그 이동 · 클릭 상태 확인</span></div>
   <div id="debug-snapshot" class="modal" hidden><section class="dialog"><p class="eyebrow">DEBUG SNAPSHOT</p><h2>현재 맵 상태</h2><p>현재 시점의 플레이어와 오브젝트 상태입니다.</p><textarea id="debug-json" readonly aria-label="맵 상태 JSON" spellcheck="false"></textarea><button id="debug-json-save" class="primary">JSON 파일 저장</button><button id="debug-json-copy" class="secondary">JSON 복사</button><button id="debug-json-close" class="secondary">닫기 · ESC</button></section></div>
+  <section id="chat-window" hidden aria-label="게임 채팅"><div id="chat-header"><b id="chat-title">생존자 채팅 · 드래그 이동</b><button id="chat-fold" type="button" aria-label="채팅창 접기" aria-expanded="true">−</button></div><div id="chat-body"><div id="chat-messages" role="log" aria-live="polite"></div><form id="chat-form"><input id="chat-input" maxlength="200" placeholder="Enter로 채팅 · 최대 200자" aria-label="채팅 메시지" autocomplete="off"><button id="chat-send" type="submit">전송</button></form><div id="chat-error" role="status"></div><div class="chat-hint">Enter 전송 · Esc 입력 종료</div></div></section>
+  <link rel="stylesheet" href="./chat.css">
   <div id="toast" role="status" hidden></div>
   <script src="/socket.io/socket.io.js"></script><script type="module" src="./app.js"></script>
 </body></html>
